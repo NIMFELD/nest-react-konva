@@ -1,0 +1,185 @@
+# ============================================
+# TEST DE INTEGRACIÓN SEAT.IO CON TU BASE DE DATOS
+# ============================================
+
+# 1. Obtener configuración
+GET http://localhost:3001/events/config
+
+###
+
+# 2. Listar eventos existentes
+GET http://localhost:3001/events
+
+###
+
+# 3. Crear un chart (mapa/plano)
+POST http://localhost:3001/events/charts
+Content-Type: application/json
+
+{
+  "name": "Teatro Principal",
+  "venueType": "MIXED"
+}
+
+###
+
+# 4. Crear categorías en un chart (reemplaza CHART_KEY)
+POST http://localhost:3001/events/charts/YOUR_CHART_KEY/categories
+Content-Type: application/json
+
+{
+  "categories": [
+    {
+      "key": 1,
+      "label": "VIP",
+      "color": "#FF6B6B",
+      "accessible": false
+    },
+    {
+      "key": 2,
+      "label": "Platea",
+      "color": "#4ECDC4",
+      "accessible": true
+    },
+    {
+      "key": 3,
+      "label": "Palco",
+      "color": "#45B7D1",
+      "accessible": false
+    }
+  ]
+}
+
+###
+
+# 5. Crear estructura completa (Chart + Event + Categorías)
+# Este es el endpoint principal que usarías
+POST http://localhost:3001/events/venues/create-complete-structure
+Content-Type: application/json
+
+{
+  "name": "Concierto Rock Festival",
+  "eventTitle": "Festival de Rock 2024",
+  "categories": [
+    {
+      "name": "VIP Gold",
+      "color": "#FFD700",
+      "price": 15000
+    },
+    {
+      "name": "VIP Silver",
+      "color": "#C0C0C0",
+      "price": 12000
+    },
+    {
+      "name": "Platea",
+      "color": "#4ECDC4",
+      "price": 8000
+    },
+    {
+      "name": "Gradería",
+      "color": "#96CEB4",
+      "price": 5000
+    }
+  ]
+}
+
+###
+
+# 6. Obtener información de un evento (reemplaza EVENT_KEY)
+GET http://localhost:3001/events/YOUR_EVENT_KEY
+
+###
+
+# 7. Obtener todos los objetos/asientos de un evento
+GET http://localhost:3001/events/YOUR_EVENT_KEY/objects
+
+###
+
+# 8. Reservar asientos específicos
+POST http://localhost:3001/events/YOUR_EVENT_KEY/book
+Content-Type: application/json
+
+{
+  "objectIds": ["A-1", "A-2", "B-1"],
+  "orderId": "ORDER_123456"
+}
+
+###
+
+# 9. Liberar asientos
+POST http://localhost:3001/events/YOUR_EVENT_KEY/release
+Content-Type: application/json
+
+{
+  "objectIds": ["A-1", "A-2"]
+}
+
+###
+
+# 10. Mantener asientos en hold temporal
+POST http://localhost:3001/events/YOUR_EVENT_KEY/hold
+Content-Type: application/json
+
+{
+  "objectIds": ["C-1", "C-2", "C-3"],
+  "holdToken": "optional_hold_token"
+}
+
+###
+
+# 11. Cambiar estado personalizado
+POST http://localhost:3001/events/YOUR_EVENT_KEY/change-status
+Content-Type: application/json
+
+{
+  "objectIds": ["D-1", "D-2"],
+  "status": "maintenance",
+  "orderId": "MAINT_001"
+}
+
+# ============================================
+# EJEMPLOS DE MAPEO CON TU BASE DE DATOS
+# ============================================
+
+# Ejemplo de cómo mapearías la respuesta del endpoint 5 a tu modelo EventVenue:
+
+# RESPUESTA DEL SERVIDOR:
+# {
+#   "chart": { "key": "abc123", "name": "Concierto Rock Festival" },
+#   "event": { "key": "def456", "chartKey": "abc123" },
+#   "categories": [...],
+#   "mapping": [
+#     {
+#       "venueType": "venue",
+#       "seatioType": "chart",
+#       "seatioObjectId": "abc123",
+#       "seatioEventKey": "def456",
+#       "seatioChartKey": "abc123"
+#     },
+#     {
+#       "venueType": "category",
+#       "seatioType": "category", 
+#       "seatioObjectId": "1",
+#       "seatioEventKey": "def456",
+#       "seatioChartKey": "abc123"
+#     }
+#   ]
+# }
+
+# CÓDIGO PARA CREAR EventVenue EN TU BD:
+# const eventVenues = mapping.map(item => ({
+#   name: item.venueType === 'venue' ? data.name : categories.find(c => c.key == item.seatioObjectId)?.label,
+#   priceGeneral: item.venueType === 'category' ? categories.find(c => c.key == item.seatioObjectId)?.price || 0 : 0,
+#   price: item.venueType === 'category' ? categories.find(c => c.key == item.seatioObjectId)?.price || 0 : 0,
+#   root: item.venueType === 'category',
+#   seatioObjectId: item.seatioObjectId,
+#   seatioType: item.seatioType,
+#   seatioEventKey: item.seatioEventKey,
+#   seatioChartKey: item.seatioChartKey,
+#   seatioStatus: 'active',
+#   seatioMetadata: { createdAt: new Date(), source: 'api' },
+#   eventId: yourEventId
+# }));
+
+# await prisma.eventVenue.createMany({ data: eventVenues }); 
