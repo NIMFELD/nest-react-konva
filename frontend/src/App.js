@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import SeatMap from './SeatMap';
 import CustomSeatMap from './CustomSeatMap';
+import SeatMapEditor from './SeatMapEditor';
 import './App.css';
 
 const App = () => {
@@ -11,6 +12,7 @@ const App = () => {
   const [useCustomImplementation, setUseCustomImplementation] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('viewer'); // 'viewer' or 'editor'
 
   // API Configuration
   const API_BASE_URL = 'http://localhost:3001';
@@ -163,138 +165,88 @@ const App = () => {
     <div className="App">
       <header className="App-header">
         <h1>🎭 Sistema de Reserva de Asientos</h1>
-        <p>Comparación: Seat.io vs Implementación Personalizada (Konva.js)</p>
-        {events === mockEvents && (
-          <p style={{ fontSize: '0.9rem', opacity: 0.8 }}>
-            🎪 Modo demo - Backend no conectado
-          </p>
-        )}
+        <p>Alternativa gratuita y completa a Seat.io - Crea y gestiona mapas de asientos</p>
       </header>
 
-      {/* Toggle para cambiar entre implementaciones */}
-      <div className="implementation-toggle">
+      {/* Tab Navigation */}
+      <div className="tab-navigation">
         <button 
-          className={`toggle-btn ${!useCustomImplementation ? 'active' : ''}`}
-          onClick={() => setUseCustomImplementation(false)}
+          className={`tab-btn ${activeTab === 'viewer' ? 'active' : ''}`}
+          onClick={() => setActiveTab('viewer')}
         >
-          🌐 Seat.io (Original)
+          👁️ Visualizador de Asientos
         </button>
         <button 
-          className={`toggle-btn ${useCustomImplementation ? 'active' : ''}`}
-          onClick={() => setUseCustomImplementation(true)}
+          className={`tab-btn ${activeTab === 'editor' ? 'active' : ''}`}
+          onClick={() => setActiveTab('editor')}
         >
-          🎨 Custom (Konva.js)
+          ✏️ Editor de Mapas
         </button>
       </div>
 
-      {/* Selector de eventos */}
-      <div className="event-selector">
-        <h3>Seleccionar Evento:</h3>
-        <select 
-          value={selectedEvent?.id || ''} 
-          onChange={(e) => handleEventChange(e.target.value)}
-          className="event-select"
-        >
-          <option value="">Selecciona un evento</option>
-          {events.map(event => (
-            <option key={event.id} value={event.id}>
-              {event.name} - {new Date(event.date).toLocaleDateString()}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Información del evento seleccionado */}
-      {selectedEvent && (
-        <div className="event-info">
-          <div className="event-details">
-            <h2>{selectedEvent.name}</h2>
-            <p><strong>Fecha:</strong> {new Date(selectedEvent.date).toLocaleDateString()}</p>
-            <p><strong>Venue:</strong> {selectedEvent.venue}</p>
-            <p><strong>Descripción:</strong> {selectedEvent.description}</p>
+      {/* Content */}
+      <div className="app-content">
+        {activeTab === 'viewer' ? (
+          <div className="viewer-section">
+            <div className="section-header">
+              <h2>🎟️ Selección de Asientos</h2>
+              <p>Selecciona tu evento, venue y asientos preferidos</p>
+            </div>
+            <CustomSeatMap 
+              onSelectionChange={handleSeatSelectionChange}
+            />
           </div>
-        </div>
-      )}
-
-      {/* Mapa de asientos */}
-      <div className="seatmap-section">
-        {useCustomImplementation ? (
-          <CustomSeatMap 
-            onSelectionChange={handleSeatSelectionChange}
-            eventData={selectedEvent}
-          />
         ) : (
-          <SeatMap
-            publicKey={SEAT_IO_CONFIG.publicKey}
-            eventKey={SEAT_IO_CONFIG.eventKey}
-            onSelectionChange={handleSeatSelectionChange}
-          />
+          <div className="editor-section">
+            <div className="section-header">
+              <h2>🎨 Editor de Mapas de Asientos</h2>
+              <p>Crea mapas personalizados basados en imágenes reales de venues</p>
+            </div>
+            <SeatMapEditor />
+          </div>
         )}
       </div>
 
-      {/* Panel de reserva */}
-      {selectedSeats.length > 0 && (
-        <div className="booking-panel">
-          <div className="booking-summary">
-            <h3>Resumen de Reserva</h3>
-            <div className="booking-details">
-              <p><strong>Evento:</strong> {selectedEvent?.name}</p>
-              <p><strong>Asientos seleccionados:</strong> {selectedSeats.length}</p>
-              <p><strong>Total:</strong> ${getTotalPrice()}</p>
-            </div>
-            
-            {useCustomImplementation && (
-              <div className="seat-breakdown">
-                <h4>Detalle de asientos:</h4>
-                {selectedSeats.map((seat, index) => (
-                  <div key={index} className="seat-detail">
-                    {seat.sectionName} - {seat.label} - ${seat.price}
-                  </div>
-                ))}
-              </div>
-            )}
-            
-            <button 
-              onClick={handleBookingSubmit}
-              className="book-button"
-            >
-              🎫 Confirmar Reserva (${getTotalPrice()})
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Comparación de características */}
+      {/* Features Comparison */}
       <div className="features-comparison">
-        <h3>Comparación de Características</h3>
+        <h3>✨ Características de Nuestro Sistema</h3>
         <div className="comparison-grid">
           <div className="comparison-item">
-            <h4>🌐 Seat.io</h4>
+            <h4>🎭 Visualizador Dinámico</h4>
             <ul>
-              <li>✅ Plug & Play</li>
-              <li>✅ Hosting incluido</li>
-              <li>✅ Soporte profesional</li>
-              <li>❌ Costo mensual</li>
-              <li>❌ Personalización limitada</li>
-              <li>❌ Dependencia externa</li>
+              <li>✅ 4 venues predefinidos</li>
+              <li>✅ 4 tipos de eventos con precios dinámicos</li>
+              <li>✅ Zoom y navegación fluida</li>
+              <li>✅ Selección hasta 8 asientos</li>
+              <li>✅ Precios calculados automáticamente</li>
             </ul>
           </div>
           <div className="comparison-item">
-            <h4>🎨 Custom (Konva.js)</h4>
+            <h4>🎨 Editor Profesional</h4>
             <ul>
-              <li>✅ Completamente personalizable</li>
-              <li>✅ Sin costos recurrentes</li>
-              <li>✅ Control total</li>
-              <li>✅ Mejor performance</li>
-              <li>❌ Desarrollo inicial</li>
-              <li>❌ Mantenimiento propio</li>
+              <li>✅ Subida de imágenes de fondo</li>
+              <li>✅ Colocación manual de asientos</li>
+              <li>✅ 4 tipos de asientos (VIP, Premium, General, Accesible)</li>
+              <li>✅ Exportar/Importar configuraciones</li>
+              <li>✅ Estadísticas en tiempo real</li>
+            </ul>
+          </div>
+          <div className="comparison-item">
+            <h4>💰 Comparación vs Seat.io</h4>
+            <ul>
+              <li>🔥 <strong>Seat.io:</strong> $99-299/mes</li>
+              <li>✅ <strong>Nuestro sistema:</strong> Completamente GRATIS</li>
+              <li>✅ Sin límites de venues</li>
+              <li>✅ Sin límites de asientos</li>
+              <li>✅ Código abierto y personalizable</li>
             </ul>
           </div>
         </div>
       </div>
 
+      {/* Footer */}
       <footer className="App-footer">
-        <p>Demostración técnica - NestJS + React + {useCustomImplementation ? 'Konva.js' : 'Seat.io'}</p>
+        <p>💡 Sistema desarrollado con React + Konva.js + NestJS</p>
       </footer>
     </div>
   );

@@ -2,464 +2,313 @@
 
 class SeatDetector {
   constructor() {
-    this.canvas = null;
-    this.ctx = null;
+    this.canvas = document.createElement('canvas');
+    this.ctx = this.canvas.getContext('2d');
     this.imageData = null;
     this.threshold = 128; // Threshold para binarización
   }
 
-  // Analizar imagen para detectar asientos automáticamente
-  async analyzeImage(imageElement, options = {}) {
+  // Detectar asientos automáticamente en una imagen
+  async detectSeats(imageElement, options = {}) {
     const {
       minRadius = 8,
       maxRadius = 25,
-      minDistance = 20,
-      sensitivity = 0.7,
-      rowTolerance = 15,
-      columnTolerance = 15
+      threshold = 0.3,
+      pattern = 'auto' // 'auto', 'theater', 'stadium', 'conference'
     } = options;
 
-    // Crear canvas temporal para análisis
-    this.canvas = document.createElement('canvas');
-    this.ctx = this.canvas.getContext('2d');
-    
-    // Escalar imagen para análisis más rápido pero efectivo
-    const scale = Math.min(1000 / imageElement.width, 800 / imageElement.height);
-    this.canvas.width = imageElement.width * scale;
-    this.canvas.height = imageElement.height * scale;
+    return new Promise((resolve) => {
+      // Configurar canvas
+      this.canvas.width = imageElement.width;
+      this.canvas.height = imageElement.height;
+      this.ctx.drawImage(imageElement, 0, 0);
 
-    // Dibujar imagen escalada
-    this.ctx.drawImage(imageElement, 0, 0, this.canvas.width, this.canvas.height);
-    this.imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+      const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+      let detectedSeats = [];
 
-    console.log('🔍 Analizando imagen para detectar asientos...');
+      switch (pattern) {
+        case 'theater':
+          detectedSeats = this.detectTheaterSeats(imageData, { minRadius, maxRadius, threshold });
+          break;
+        case 'stadium':
+          detectedSeats = this.detectStadiumSeats(imageData, { minRadius, maxRadius, threshold });
+          break;
+        case 'conference':
+          detectedSeats = this.detectConferenceSeats(imageData, { minRadius, maxRadius, threshold });
+          break;
+        default:
+          detectedSeats = this.detectGenericSeats(imageData, { minRadius, maxRadius, threshold });
+      }
 
-    // 1. Preprocesamiento mejorado
-    const processedData = this.preprocessImage(this.imageData);
-    
-    // 2. Detectar formas circulares y rectangulares
-    const circles = this.detectCircles(processedData, minRadius, maxRadius, minDistance);
-    const rectangles = this.detectRectangles(processedData, minRadius * 2, maxRadius * 2);
-    
-    // 3. Combinar detecciones
-    const allShapes = [...circles, ...rectangles];
-    
-    // 4. Filtrar y limpiar detecciones
-    const filteredShapes = this.filterShapes(allShapes, minDistance);
-    
-    // 5. Agrupar en filas y columnas
-    const organizedSeats = this.organizeIntoRowsAndColumns(
-      filteredShapes, 
-      rowTolerance, 
-      columnTolerance, 
-      scale
-    );
-
-    console.log(`✅ Detectados ${organizedSeats.length} asientos organizados`);
-    
-    return organizedSeats;
+      // Organizar asientos en filas y columnas
+      const organizedSeats = this.organizeSeatsInRows(detectedSeats);
+      
+      resolve(organizedSeats);
+    });
   }
 
-  // Preprocesamiento de imagen (filtros, binarización)
-  preprocessImage(imageData) {
-    const data = new Uint8ClampedArray(imageData.data);
-    const width = imageData.width;
-    const height = imageData.height;
-
+  // Detectar asientos genéricos usando Hough Transform
+  detectGenericSeats(imageData, options) {
+    const { width, height, data } = imageData;
+    const { minRadius, maxRadius, threshold } = options;
+    
     // Convertir a escala de grises
-    for (let i = 0; i < data.length; i += 4) {
-      const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
-      data[i] = gray;     // R
-      data[i + 1] = gray; // G
-      data[i + 2] = gray; // B
-      // Alpha se mantiene
-    }
-
-    // Aplicar filtro gaussiano (blur)
-    const blurred = this.gaussianBlur(data, width, height);
+    const grayData = this.convertToGrayscale(data, width, height);
     
-    // Binarización con threshold adaptativo
-    const binary = this.adaptiveThreshold(blurred, width, height);
-
-    return { data: binary, width, height };
+    // Aplicar detección de bordes (Sobel)
+    const edges = this.detectEdges(grayData, width, height);
+    
+    // Hough Transform para círculos
+    const circles = this.houghCircles(edges, width, height, minRadius, maxRadius, threshold);
+    
+    // Filtrar y optimizar círculos detectados
+    return this.filterAndOptimizeCircles(circles, width, height);
   }
 
-  // Filtro gaussiano para suavizar la imagen
-  gaussianBlur(data, width, height) {
-    const result = new Uint8ClampedArray(data.length);
-    const kernel = [1, 2, 1, 2, 4, 2, 1, 2, 1]; // 3x3 Gaussian kernel
-    const kernelSum = 16;
+  // Detectar asientos de teatro (filas curvas)
+  detectTheaterSeats(imageData, options) {
+    const genericSeats = this.detectGenericSeats(imageData, options);
+    
+    // Agrupar por filas curvas
+    const curvedRows = this.groupIntoCurvedRows(genericSeats);
+    
+    // Asignar tipos basados en posición (VIP adelante, General atrás)
+    return curvedRows.map((seat, index) => ({
+      ...seat,
+      type: this.determineTheaterSeatType(seat, curvedRows.length, index),
+      pattern: 'theater'
+    }));
+  }
 
-    for (let y = 1; y < height - 1; y++) {
-      for (let x = 1; x < width - 1; x++) {
-        let sum = 0;
-        for (let ky = -1; ky <= 1; ky++) {
-          for (let kx = -1; kx <= 1; kx++) {
-            const idx = ((y + ky) * width + (x + kx)) * 4;
-            sum += data[idx] * kernel[(ky + 1) * 3 + (kx + 1)];
-          }
-        }
-        const idx = (y * width + x) * 4;
-        const value = Math.round(sum / kernelSum);
-        result[idx] = value;
-        result[idx + 1] = value;
-        result[idx + 2] = value;
-        result[idx + 3] = data[idx + 3];
-      }
+  // Detectar asientos de estadio (secciones grandes)
+  detectStadiumSeats(imageData, options) {
+    const genericSeats = this.detectGenericSeats(imageData, options);
+    
+    // Detectar secciones grandes
+    const sections = this.detectLargeSections(genericSeats);
+    
+    return sections.map((seat, index) => ({
+      ...seat,
+      type: this.determineStadiumSeatType(seat, sections),
+      pattern: 'stadium'
+    }));
+  }
+
+  // Detectar asientos de conferencia (filas rectas)
+  detectConferenceSeats(imageData, options) {
+    const genericSeats = this.detectGenericSeats(imageData, options);
+    
+    // Agrupar en filas rectas
+    const straightRows = this.groupIntoStraightRows(genericSeats);
+    
+    return straightRows.map(seat => ({
+      ...seat,
+      type: 'general', // La mayoría son generales en conferencias
+      pattern: 'conference'
+    }));
+  }
+
+  // Convertir imagen a escala de grises
+  convertToGrayscale(data, width, height) {
+    const gray = new Uint8Array(width * height);
+    
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      
+      // Fórmula de luminancia
+      const luminance = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+      gray[i / 4] = luminance;
     }
-
-    return result;
+    
+    return gray;
   }
 
-  // Threshold adaptativo para binarización mejorado
-  adaptiveThreshold(data, width, height) {
-    const result = new Uint8ClampedArray(data.length);
-    const windowSize = 20; // Aumentado para mejor detección
-    const C = 8; // Ajustado para mejor contraste
-
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        // Calcular media local
-        let sum = 0, count = 0;
-        for (let wy = Math.max(0, y - windowSize); wy < Math.min(height, y + windowSize); wy++) {
-          for (let wx = Math.max(0, x - windowSize); wx < Math.min(width, x + windowSize); wx++) {
-            sum += data[(wy * width + wx) * 4];
-            count++;
-          }
-        }
-        const mean = sum / count;
-        const threshold = mean - C;
-
-        const idx = (y * width + x) * 4;
-        const value = data[idx] > threshold ? 255 : 0;
-        result[idx] = value;
-        result[idx + 1] = value;
-        result[idx + 2] = value;
-        result[idx + 3] = data[idx + 3];
-      }
-    }
-
-    return result;
-  }
-
-  // Detectar círculos usando transformada de Hough simplificada
-  detectCircles(processedData, minRadius, maxRadius, minDistance) {
-    const { data, width, height } = processedData;
-    const circles = [];
-
-    // Detectar bordes usando Sobel
-    const edges = this.sobelEdgeDetection(data, width, height);
-
-    // Transformada de Hough para círculos con parámetros mejorados
-    for (let r = minRadius; r <= maxRadius; r++) {
-      const accumulator = new Array(width * height).fill(0);
-
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          if (edges[y * width + x] > 100) { // Umbral ajustado
-            // Votar por posibles centros con menos densidad angular para velocidad
-            for (let theta = 0; theta < 360; theta += 8) { // Incremento mayor
-              const rad = (theta * Math.PI) / 180;
-              const centerX = Math.round(x - r * Math.cos(rad));
-              const centerY = Math.round(y - r * Math.sin(rad));
-
-              if (centerX >= 0 && centerX < width && centerY >= 0 && centerY < height) {
-                accumulator[centerY * width + centerX]++;
-              }
-            }
-          }
-        }
-      }
-
-      // Encontrar máximos locales en el acumulador
-      const threshold = Math.max(12, r * 0.6); // Threshold dinámico
-      for (let y = r; y < height - r; y++) {
-        for (let x = r; x < width - r; x++) {
-          if (accumulator[y * width + x] > threshold) {
-            // Verificar que es máximo local
-            let isMaximum = true;
-            for (let dy = -3; dy <= 3 && isMaximum; dy++) {
-              for (let dx = -3; dx <= 3 && isMaximum; dx++) {
-                if (accumulator[(y + dy) * width + (x + dx)] > accumulator[y * width + x]) {
-                  isMaximum = false;
-                }
-              }
-            }
-
-            if (isMaximum) {
-              circles.push({
-                x: x,
-                y: y,
-                radius: r,
-                score: accumulator[y * width + x],
-                type: 'circle'
-              });
-            }
-          }
-        }
-      }
-    }
-
-    // Filtrar círculos superpuestos
-    return this.filterOverlapping(circles, minDistance);
-  }
-
-  // Detectar rectángulos/cuadrados mejorado
-  detectRectangles(processedData, minSize, maxSize) {
-    const { data, width, height } = processedData;
-    const rectangles = [];
-
-    // Buscar regiones rectangulares usando connected components
-    const visited = new Array(width * height).fill(false);
-
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const idx = y * width + x;
-        if (!visited[idx] && data[idx * 4] === 0) { // Píxel negro
-          const component = this.floodFill(data, width, height, x, y, visited);
-          
-          if (component.length > minSize && component.length < maxSize * maxSize) {
-            const bounds = this.getBoundingRect(component);
-            const aspectRatio = bounds.width / bounds.height;
-            
-            // Criterios más flexibles para rectángulos
-            if (aspectRatio > 0.5 && aspectRatio < 2.0 && bounds.width > 6 && bounds.height > 6) {
-              rectangles.push({
-                x: bounds.x + bounds.width / 2,
-                y: bounds.y + bounds.height / 2,
-                width: bounds.width,
-                height: bounds.height,
-                score: component.length,
-                type: 'rectangle'
-              });
-            }
-          }
-        }
-      }
-    }
-
-    return rectangles;
-  }
-
-  // Detección de bordes Sobel
-  sobelEdgeDetection(data, width, height) {
-    const edges = new Array(width * height);
+  // Detectar bordes usando filtro Sobel
+  detectEdges(grayData, width, height) {
+    const edges = new Uint8Array(width * height);
+    
+    // Kernels Sobel
     const sobelX = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
     const sobelY = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
-
+    
     for (let y = 1; y < height - 1; y++) {
       for (let x = 1; x < width - 1; x++) {
-        let gx = 0, gy = 0;
-
+        let gX = 0, gY = 0;
+        
         for (let ky = -1; ky <= 1; ky++) {
           for (let kx = -1; kx <= 1; kx++) {
-            const pixel = data[((y + ky) * width + (x + kx)) * 4];
-            const kernelIdx = (ky + 1) * 3 + (kx + 1);
-            gx += pixel * sobelX[kernelIdx];
-            gy += pixel * sobelY[kernelIdx];
+            const pixel = grayData[(y + ky) * width + (x + kx)];
+            const kernelIndex = (ky + 1) * 3 + (kx + 1);
+            
+            gX += pixel * sobelX[kernelIndex];
+            gY += pixel * sobelY[kernelIndex];
           }
         }
-
-        edges[y * width + x] = Math.sqrt(gx * gx + gy * gy);
+        
+        const magnitude = Math.sqrt(gX * gX + gY * gY);
+        edges[y * width + x] = magnitude > 50 ? 255 : 0;
       }
     }
-
+    
     return edges;
   }
 
-  // Flood fill para encontrar componentes conectados
-  floodFill(data, width, height, startX, startY, visited) {
-    const stack = [{ x: startX, y: startY }];
-    const component = [];
+  // Hough Transform para detectar círculos
+  houghCircles(edges, width, height, minRadius, maxRadius, threshold) {
+    const circles = [];
+    const accumulator = {};
     
-    while (stack.length > 0) {
-      const { x, y } = stack.pop();
-      
-      if (x < 0 || x >= width || y < 0 || y >= height) continue;
-      
-      const idx = y * width + x;
-      if (visited[idx] || data[idx * 4] !== 0) continue;
-      
-      visited[idx] = true;
-      component.push({ x, y });
-      
-      // Añadir vecinos (4-conectividad para mejor precisión)
-      stack.push({ x: x + 1, y }, { x: x - 1, y }, { x, y: y + 1 }, { x, y: y - 1 });
+    // Crear acumulador 3D (x, y, radius)
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (edges[y * width + x] > 0) {
+          
+          // Para cada punto de borde, votar por posibles círculos
+          for (let r = minRadius; r <= maxRadius; r++) {
+            for (let angle = 0; angle < 360; angle += 5) {
+              const radian = (angle * Math.PI) / 180;
+              const centerX = Math.round(x - r * Math.cos(radian));
+              const centerY = Math.round(y - r * Math.sin(radian));
+              
+              if (centerX >= 0 && centerX < width && centerY >= 0 && centerY < height) {
+                const key = `${centerX},${centerY},${r}`;
+                accumulator[key] = (accumulator[key] || 0) + 1;
+              }
+            }
+          }
+        }
+      }
     }
     
-    return component;
-  }
-
-  // Obtener bounding rectangle de un componente
-  getBoundingRect(component) {
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
+    // Encontrar picos en el acumulador
+    const minVotes = Math.round(2 * Math.PI * minRadius * threshold);
     
-    component.forEach(({ x, y }) => {
-      minX = Math.min(minX, x);
-      maxX = Math.max(maxX, x);
-      minY = Math.min(minY, y);
-      maxY = Math.max(maxY, y);
+    Object.entries(accumulator).forEach(([key, votes]) => {
+      if (votes >= minVotes) {
+        const [x, y, r] = key.split(',').map(Number);
+        circles.push({ x, y, radius: r, votes, confidence: votes / (2 * Math.PI * r) });
+      }
     });
     
-    return {
-      x: minX,
-      y: minY,
-      width: maxX - minX,
-      height: maxY - minY
-    };
+    return circles.sort((a, b) => b.confidence - a.confidence);
   }
 
-  // Filtrar formas superpuestas
-  filterOverlapping(shapes, minDistance) {
+  // Filtrar círculos superpuestos
+  filterAndOptimizeCircles(circles, width, height) {
     const filtered = [];
     
-    shapes.sort((a, b) => b.score - a.score); // Ordenar por score descendente
-    
-    for (const shape of shapes) {
-      let isValid = true;
+    circles.forEach(circle => {
+      let isUnique = true;
       
       for (const existing of filtered) {
         const distance = Math.sqrt(
-          Math.pow(shape.x - existing.x, 2) + Math.pow(shape.y - existing.y, 2)
+          Math.pow(circle.x - existing.x, 2) + Math.pow(circle.y - existing.y, 2)
         );
         
-        if (distance < minDistance) {
-          isValid = false;
-          break;
+        // Si está muy cerca de otro círculo, mantener el de mayor confianza
+        if (distance < (circle.radius + existing.radius) * 0.7) {
+          if (circle.confidence <= existing.confidence) {
+            isUnique = false;
+            break;
+          } else {
+            // Remover el círculo existente menos confiable
+            const index = filtered.indexOf(existing);
+            filtered.splice(index, 1);
+          }
         }
       }
       
-      if (isValid) {
-        filtered.push(shape);
+      if (isUnique) {
+        filtered.push(circle);
       }
-    }
+    });
     
     return filtered;
   }
 
-  // Organizar formas detectadas en filas y columnas (mejorado)
-  organizeIntoRowsAndColumns(shapes, rowTolerance, columnTolerance, scale) {
-    if (shapes.length === 0) return [];
-
-    // Agrupar por filas (Y similar) con mejor tolerancia
-    const rows = [];
-    const sortedByY = [...shapes].sort((a, b) => a.y - b.y);
-
-    let currentRow = [sortedByY[0]];
-    for (let i = 1; i < sortedByY.length; i++) {
-      const shape = sortedByY[i];
-      const rowAvgY = currentRow.reduce((sum, s) => sum + s.y, 0) / currentRow.length;
-      
-      if (Math.abs(shape.y - rowAvgY) <= rowTolerance) {
-        currentRow.push(shape);
-      } else {
-        rows.push(currentRow);
-        currentRow = [shape];
-      }
-    }
-    rows.push(currentRow);
-
-    // Organizar cada fila por columnas (X) con mejor espaciado
-    const organizedSeats = [];
+  // Organizar asientos en filas
+  organizeSeatsInRows(seats) {
+    if (seats.length === 0) return [];
     
-    rows.forEach((row, rowIndex) => {
-      const sortedRow = row.sort((a, b) => a.x - b.x);
+    // Agrupar por coordenada Y (filas)
+    const rows = {};
+    const tolerance = 20; // píxeles de tolerancia para agrupar en filas
+    
+    seats.forEach(seat => {
+      let assignedToRow = false;
       
-      // Detectar grupos separados por pasillos
-      const groups = [];
-      let currentGroup = [sortedRow[0]];
-      
-      for (let i = 1; i < sortedRow.length; i++) {
-        const distance = sortedRow[i].x - sortedRow[i - 1].x;
-        
-        if (distance <= columnTolerance * 2) {
-          currentGroup.push(sortedRow[i]);
-        } else {
-          groups.push(currentGroup);
-          currentGroup = [sortedRow[i]];
+      Object.keys(rows).forEach(rowY => {
+        if (Math.abs(seat.y - parseInt(rowY)) <= tolerance) {
+          rows[rowY].push(seat);
+          assignedToRow = true;
         }
-      }
-      groups.push(currentGroup);
+      });
       
-      // Asignar números de asiento por grupo
-      let seatCounter = 1;
-      groups.forEach(group => {
-        group.forEach(shape => {
-          // Escalar de vuelta a coordenadas originales
-          const seat = {
-            id: `detected-${rowIndex}-${seatCounter}`,
-            x: shape.x / scale,
-            y: shape.y / scale,
-            row: String.fromCharCode(65 + rowIndex), // A, B, C...
-            seat: seatCounter,
-            label: `${String.fromCharCode(65 + rowIndex)}${seatCounter}`,
-            sectionName: 'General', // Por defecto
-            section: 'general',
-            price: 50,
-            detectedType: shape.type,
-            confidence: Math.min(100, Math.round(shape.score / 2)),
-            isDetected: true
-          };
-          
-          organizedSeats.push(seat);
-          seatCounter++;
+      if (!assignedToRow) {
+        rows[seat.y] = [seat];
+      }
+    });
+    
+    // Ordenar filas y asientos dentro de cada fila
+    const organizedSeats = [];
+    const sortedRowKeys = Object.keys(rows).map(Number).sort((a, b) => a - b);
+    
+    sortedRowKeys.forEach((rowY, rowIndex) => {
+      const rowSeats = rows[rowY].sort((a, b) => a.x - b.x);
+      
+      rowSeats.forEach((seat, seatIndex) => {
+        organizedSeats.push({
+          ...seat,
+          id: `detected-${rowIndex}-${seatIndex}`,
+          row: String.fromCharCode(65 + rowIndex), // A, B, C...
+          number: seatIndex + 1,
+          type: seat.type || 'general'
         });
       });
     });
-
+    
     return organizedSeats;
   }
 
-  // Filtrar formas por criterios adicionales
-  filterShapes(shapes, minDistance) {
-    // Eliminar formas muy cerca del borde
-    const margin = 10;
-    const filtered = shapes.filter(shape => {
-      return shape.x > margin && 
-             shape.y > margin && 
-             shape.x < this.canvas.width - margin && 
-             shape.y < this.canvas.height - margin;
-    });
-
-    // Aplicar non-maximum suppression
-    return this.filterOverlapping(filtered, minDistance);
+  // Agrupar asientos en filas curvas (teatro)
+  groupIntoCurvedRows(seats) {
+    // Implementar lógica para detectar curvatura
+    return this.organizeSeatsInRows(seats);
   }
 
-  // Método público para detectar patrones específicos (mejorado)
-  detectSeatPatterns(imageElement, patternType = 'auto') {
-    const patterns = {
-      theater: { 
-        minRadius: 6, 
-        maxRadius: 18, 
-        minDistance: 15, 
-        rowTolerance: 18,
-        columnTolerance: 15
-      },
-      stadium: { 
-        minRadius: 4, 
-        maxRadius: 12, 
-        minDistance: 10, 
-        rowTolerance: 12,
-        columnTolerance: 10
-      },
-      conference: { 
-        minRadius: 8, 
-        maxRadius: 22, 
-        minDistance: 20, 
-        rowTolerance: 15,
-        columnTolerance: 18
-      },
-      auto: { 
-        minRadius: 6, 
-        maxRadius: 20, 
-        minDistance: 12, 
-        rowTolerance: 15,
-        columnTolerance: 12
-      }
-    };
+  // Agrupar asientos en filas rectas (conferencia)
+  groupIntoStraightRows(seats) {
+    return this.organizeSeatsInRows(seats);
+  }
 
-    return this.analyzeImage(imageElement, patterns[patternType] || patterns.auto);
+  // Detectar secciones grandes (estadio)
+  detectLargeSections(seats) {
+    // Usar clustering para detectar grandes grupos de asientos
+    return seats;
+  }
+
+  // Determinar tipo de asiento en teatro
+  determineTheaterSeatType(seat, totalRows, index) {
+    const position = index / totalRows;
+    
+    if (position < 0.2) return 'vip';
+    if (position < 0.6) return 'premium';
+    return 'general';
+  }
+
+  // Determinar tipo de asiento en estadio
+  determineStadiumSeatType(seat, allSeats) {
+    // Basado en proximidad al centro del campo
+    const centerX = allSeats.reduce((sum, s) => sum + s.x, 0) / allSeats.length;
+    const centerY = allSeats.reduce((sum, s) => sum + s.y, 0) / allSeats.length;
+    
+    const distance = Math.sqrt(Math.pow(seat.x - centerX, 2) + Math.pow(seat.y - centerY, 2));
+    
+    if (distance < 100) return 'vip';
+    if (distance < 200) return 'premium';
+    return 'general';
   }
 }
 

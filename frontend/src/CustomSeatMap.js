@@ -1,5 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { Stage, Layer, Circle, Text, Group, Rect } from 'react-konva';
+import { Stage, Layer, Circle, Text, Group, Rect, Image as KonvaImage } from 'react-konva';
+import useImage from 'use-image';
+import useVenues from './hooks/useVenues';
 
 // Tipos de eventos con sus configuraciones de precios
 const EVENT_TYPES = {
@@ -10,7 +12,8 @@ const EVENT_TYPES = {
     seatTypes: {
       vip: { color: '#FFD700', basePrice: 100, name: 'VIP' },
       premium: { color: '#FF6B6B', basePrice: 60, name: 'Premium' },
-      general: { color: '#4ECDC4', basePrice: 30, name: 'General' }
+      general: { color: '#4ECDC4', basePrice: 30, name: 'General' },
+      accessible: { color: '#9B59B6', basePrice: 50, name: 'Accesible' }
     }
   },
   theater: {
@@ -20,7 +23,8 @@ const EVENT_TYPES = {
     seatTypes: {
       vip: { color: '#FFD700', basePrice: 80, name: 'Palco VIP' },
       premium: { color: '#FF6B6B', basePrice: 50, name: 'Platea Premium' },
-      general: { color: '#4ECDC4', basePrice: 25, name: 'Platea General' }
+      general: { color: '#4ECDC4', basePrice: 25, name: 'Platea General' },
+      accessible: { color: '#9B59B6', basePrice: 40, name: 'Accesible' }
     }
   },
   sports: {
@@ -30,7 +34,8 @@ const EVENT_TYPES = {
     seatTypes: {
       vip: { color: '#FFD700', basePrice: 120, name: 'Palco VIP' },
       premium: { color: '#FF6B6B', basePrice: 70, name: 'Tribuna Premium' },
-      general: { color: '#4ECDC4', basePrice: 35, name: 'Tribuna General' }
+      general: { color: '#4ECDC4', basePrice: 35, name: 'Tribuna General' },
+      accessible: { color: '#9B59B6', basePrice: 55, name: 'Accesible' }
     }
   },
   conference: {
@@ -40,9 +45,16 @@ const EVENT_TYPES = {
     seatTypes: {
       vip: { color: '#FFD700', basePrice: 60, name: 'VIP Front' },
       premium: { color: '#FF6B6B', basePrice: 40, name: 'Premium' },
-      general: { color: '#4ECDC4', basePrice: 20, name: 'General' }
+      general: { color: '#4ECDC4', basePrice: 20, name: 'General' },
+      accessible: { color: '#9B59B6', basePrice: 30, name: 'Accesible' }
     }
   }
+};
+
+// Componente para mostrar imagen de fondo personalizada
+const CustomBackgroundImage = ({ src }) => {
+  const [image] = useImage(src);
+  return image ? <KonvaImage image={image} /> : null;
 };
 
 // Diferentes venues con sus layouts
@@ -174,6 +186,8 @@ function generateSectionSeats(sectionName, startX, startY, rows, seatsPerRow, se
 
 const CustomSeatMap = ({ onSelectionChange, eventData }) => {
   const stageRef = useRef();
+  const { getAllVenues, deleteCustomVenue } = useVenues();
+  
   const [selectedSeats, setSelectedSeats] = useState([]);
   const [occupiedSeats, setOccupiedSeats] = useState(new Set(['vip-1-3', 'premium-2-5', 'general-3-7']));
   const [scale, setScale] = useState(1);
@@ -183,31 +197,50 @@ const CustomSeatMap = ({ onSelectionChange, eventData }) => {
   const [selectedVenue, setSelectedVenue] = useState('teatro_principal');
   const [selectedEventType, setSelectedEventType] = useState('theater');
 
-  const currentVenue = VENUES[selectedVenue];
+  // Obtener todos los venues (predefinidos + personalizados)
+  const allVenues = getAllVenues();
+  const currentVenue = allVenues[selectedVenue];
   const currentEventType = EVENT_TYPES[selectedEventType];
 
   // Función para calcular precio basado en evento y asiento
   const calculateSeatPrice = (seatSection) => {
-    const basePrice = currentEventType.seatTypes[seatSection].basePrice;
-    return Math.round(basePrice * currentEventType.priceMultiplier);
+    const eventSeatType = currentEventType.seatTypes[seatSection];
+    if (!eventSeatType) {
+      // Para venues personalizados, usar precios base
+      const basePrices = { vip: 150, premium: 100, general: 50, accessible: 75 };
+      return Math.round((basePrices[seatSection] || 50) * currentEventType.priceMultiplier);
+    }
+    return Math.round(eventSeatType.basePrice * currentEventType.priceMultiplier);
   };
 
   // Función para obtener configuración de asiento
   const getSeatConfig = (seatSection) => {
+    const eventSeatType = currentEventType.seatTypes[seatSection];
+    if (!eventSeatType) {
+      // Para venues personalizados, usar configuración base
+      const baseColors = { vip: '#FFD700', premium: '#FF6B6B', general: '#4ECDC4', accessible: '#9B59B6' };
+      return {
+        color: baseColors[seatSection] || '#4ECDC4',
+        price: calculateSeatPrice(seatSection),
+        name: seatSection.charAt(0).toUpperCase() + seatSection.slice(1)
+      };
+    }
     return {
-      ...currentEventType.seatTypes[seatSection],
+      ...eventSeatType,
       price: calculateSeatPrice(seatSection)
     };
   };
 
   const getAllSeats = () => {
-    return currentVenue?.sections.flatMap(section => 
+    if (!currentVenue?.sections) return [];
+    
+    return currentVenue.sections.flatMap(section => 
       section.seats.map(seat => ({
         ...seat,
         ...getSeatConfig(seat.section),
         price: calculateSeatPrice(seat.section)
       }))
-    ) || [];
+    );
   };
 
   const handleSeatClick = (seat) => {
@@ -274,6 +307,20 @@ const CustomSeatMap = ({ onSelectionChange, eventData }) => {
     setSelectedSeats([]);
   };
 
+  // Función para eliminar venue personalizado
+  const handleDeleteVenue = (venueId) => {
+    if (window.confirm('¿Estás seguro de que quieres eliminar este venue personalizado?')) {
+      const success = deleteCustomVenue(venueId);
+      if (success) {
+        // Si se eliminó el venue seleccionado, cambiar a uno predefinido
+        if (selectedVenue === venueId) {
+          setSelectedVenue('teatro_principal');
+        }
+        alert('Venue eliminado exitosamente');
+      }
+    }
+  };
+
   return (
     <div className="custom-seatmap-container">
       {/* Selectores de venue y evento */}
@@ -285,12 +332,34 @@ const CustomSeatMap = ({ onSelectionChange, eventData }) => {
             onChange={(e) => handleVenueChange(e.target.value)}
             className="venue-select"
           >
-            {Object.values(VENUES).map(venue => (
-              <option key={venue.id} value={venue.id}>
-                {venue.icon} {venue.name} (Cap: {venue.capacity})
-              </option>
-            ))}
+            <optgroup label="🏛️ Venues Predefinidos">
+              {Object.values(allVenues).filter(v => !v.isCustom).map(venue => (
+                <option key={venue.id} value={venue.id}>
+                  {venue.icon} {venue.name} (Cap: {venue.capacity})
+                </option>
+              ))}
+            </optgroup>
+            {Object.values(allVenues).filter(v => v.isCustom).length > 0 && (
+              <optgroup label="🎨 Venues Personalizados">
+                {Object.values(allVenues).filter(v => v.isCustom).map(venue => (
+                  <option key={venue.id} value={venue.id}>
+                    {venue.icon} {venue.name} (Cap: {venue.capacity}) ✨
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
+          
+          {/* Botón para eliminar venue personalizado */}
+          {currentVenue?.isCustom && (
+            <button 
+              className="delete-venue-btn"
+              onClick={() => handleDeleteVenue(selectedVenue)}
+              title="Eliminar venue personalizado"
+            >
+              🗑️ Eliminar
+            </button>
+          )}
         </div>
 
         <div className="selector-group">
@@ -312,7 +381,11 @@ const CustomSeatMap = ({ onSelectionChange, eventData }) => {
       {/* Información del venue y evento */}
       <div className="seatmap-info">
         <div className="venue-event-info">
-          <h3>{currentVenue.icon} {currentVenue.name} • {currentEventType.icon} {currentEventType.name}</h3>
+          <h3>
+            {currentVenue.icon} {currentVenue.name} 
+            {currentVenue.isCustom && <span className="custom-badge">✨ Personalizado</span>}
+            • {currentEventType.icon} {currentEventType.name}
+          </h3>
           <div className="info-grid">
             <div className="info-item">
               <span className="info-label">📍 Capacidad:</span>
@@ -326,6 +399,12 @@ const CustomSeatMap = ({ onSelectionChange, eventData }) => {
               <span className="info-label">🔍 Navegación:</span>
               <span className="info-value">Scroll para zoom • Arrastra para mover</span>
             </div>
+            {currentVenue.description && (
+              <div className="info-item venue-description">
+                <span className="info-label">📝 Descripción:</span>
+                <span className="info-value">{currentVenue.description}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -358,8 +437,8 @@ const CustomSeatMap = ({ onSelectionChange, eventData }) => {
       {/* Canvas principal */}
       <div className="canvas-container">
         <Stage
-          width={800}
-          height={600}
+          width={currentVenue.stageDimensions?.width || 800}
+          height={currentVenue.stageDimensions?.height || 600}
           onWheel={handleWheel}
           scaleX={scale}
           scaleY={scale}
@@ -370,25 +449,34 @@ const CustomSeatMap = ({ onSelectionChange, eventData }) => {
           className="main-stage"
         >
           <Layer>
-            {/* Fondo del escenario */}
-            <Rect
-              x={200}
-              y={10}
-              width={400}
-              height={30}
-              fill="#2c3e50"
-              cornerRadius={5}
-            />
-            <Text
-              x={200}
-              y={18}
-              text="🎭 ESCENARIO"
-              fontSize={16}
-              fontFamily="Arial"
-              fill="white"
-              width={400}
-              align="center"
-            />
+            {/* Imagen de fondo personalizada si existe */}
+            {currentVenue.backgroundImage && (
+              <CustomBackgroundImage src={currentVenue.backgroundImage} />
+            )}
+
+            {/* Fondo del escenario (solo si no hay imagen personalizada) */}
+            {!currentVenue.backgroundImage && (
+              <>
+                <Rect
+                  x={200}
+                  y={10}
+                  width={400}
+                  height={30}
+                  fill="#2c3e50"
+                  cornerRadius={5}
+                />
+                <Text
+                  x={200}
+                  y={18}
+                  text="🎭 ESCENARIO"
+                  fontSize={16}
+                  fontFamily="Arial"
+                  fill="white"
+                  width={400}
+                  align="center"
+                />
+              </>
+            )}
 
             {/* Asientos */}
             {getAllSeats().map((seat) => (
@@ -426,8 +514,8 @@ const CustomSeatMap = ({ onSelectionChange, eventData }) => {
               </Group>
             ))}
 
-            {/* Etiquetas de secciones dinámicas */}
-            {currentVenue.sections.map((section, index) => (
+            {/* Etiquetas de secciones */}
+            {!currentVenue.backgroundImage && currentVenue.sections.map((section, index) => (
               <Text
                 key={section.id}
                 x={section.labelPos?.x || 15 + index * 10}
