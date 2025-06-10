@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node dist/main.js",
+    "start:dev": "ts-node --watch src/main.ts",
     "dev": "ts-node src/main.ts",
     "build": "tsc"
   },

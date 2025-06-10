@@ -2,18 +2,77 @@
 import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
 import { EventsService } from './events.service';
 
+// Interface para eventos mock del sistema personalizado
+interface MockEvent {
+  id: string;
+  name: string;
+  date: string;
+  venue: string;
+  description: string;
+  totalSeats: number;
+  availableSeats: number;
+}
+
 @Controller('events')
 export class EventsController {
   constructor(private readonly eventsService: EventsService) {}
 
+  // ============ ENDPOINTS PARA SISTEMA PERSONALIZADO ============
+  
+  @Get()
+  async getAllEvents(): Promise<MockEvent[]> {
+    // Retornar eventos mock para el sistema personalizado
+    const mockEvents: MockEvent[] = [
+      {
+        id: 'event-1',
+        name: 'Concierto Rock Nacional',
+        date: '2025-02-15T20:00:00.000Z',
+        venue: 'Teatro Principal',
+        description: 'Una noche épica con las mejores bandas de rock nacional',
+        totalSeats: 1200,
+        availableSeats: 950
+      },
+      {
+        id: 'event-2', 
+        name: 'Obra de Teatro: Hamlet',
+        date: '2025-02-20T19:30:00.000Z',
+        venue: 'Teatro Principal',
+        description: 'La clásica obra de Shakespeare interpretada por reconocidos actores',
+        totalSeats: 800,
+        availableSeats: 650
+      },
+      {
+        id: 'event-3',
+        name: 'Festival de Jazz',
+        date: '2025-03-01T18:00:00.000Z',
+        venue: 'Teatro Principal',
+        description: 'Una velada mágica con los mejores músicos de jazz de la región',
+        totalSeats: 1000,
+        availableSeats: 780
+      },
+      {
+        id: 'event-4',
+        name: 'Comedia Stand-up',
+        date: '2025-03-10T21:00:00.000Z',
+        venue: 'Teatro Principal',
+        description: 'Risas garantizadas con los mejores comediantes del país',
+        totalSeats: 600,
+        availableSeats: 420
+      }
+    ];
+
+    return mockEvents;
+  }
+
+  @Get('seat-io-events')
+  async getSeatIoEvents() {
+    // Mantener el endpoint original para Seat.io
+    return this.eventsService.getAllEvents();
+  }
+
   @Get('config')
   async getConfig() {
     return this.eventsService.getConfig();
-  }
-
-  @Get()
-  async getAllEvents() {
-    return this.eventsService.getAllEvents();
   }
 
   @Post()
